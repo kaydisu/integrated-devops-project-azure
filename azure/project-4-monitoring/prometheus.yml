@@ -1,0 +1,31 @@
+cd# This tells Prometheus what to monitor
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # Prometheus monitoring itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Your webapp running in Kubernetes
+  - job_name: 'my-webapp'
+    static_configs:
+      - targets: ['host.docker.internal:8080']  # Using the service port
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+# global:
+#   scrape_interval: 15s
+
+# scrape_configs:
+#   # Monitor Prometheus itself
+#   - job_name: 'prometheus'
+#     static_configs:
+#       - targets: ['localhost:9090']
+  
+#   # Monitor your web app (when running)
+#   - job_name: 'my-webapp'
+#     static_configs:
+#       - targets: ['host.docker.internal:3001']

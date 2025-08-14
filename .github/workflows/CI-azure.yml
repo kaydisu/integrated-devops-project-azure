@@ -1,0 +1,268 @@
+name: Deploy to Azure Container Instances
+on:
+  push:
+    branches:
+      - main  # Trigger on pushes to branch "main"
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ${{ env.PROJECT_DIR }}
+
+    env:
+      # Change to "." if package.json is in repo root
+      PROJECT_DIR: ./azure/project-2-cicd-pipeline
+
+
+env:
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  ACR_NAME: ${{ secrets.ACR_NAME }}
+
+jobs:
+  test:
+    name: Test Application
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory:${{ env.PROJECT_DIR }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: './azure/project-2-cicd-pipeline/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Test Docker build
+        run: docker build -t test-build .
+
+  deploy:
+    name: Deploy to Azure
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory:
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Build and push Docker image
+        id: build-image
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          APP_NAME="mywebapp${TIMESTAMP}"
+          APP_NAME=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+          echo "app-name=$APP_NAME" >> $GITHUB_OUTPUT
+          
+          az acr login --name $ACR_NAME
+          IMAGE_TAG="${ACR_NAME}.azurecr.io/${APP_NAME}:latest"
+          
+          docker build -t $IMAGE_TAG .
+          docker push $IMAGE_TAG
+          
+          echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Deploy to Azure Container Instances
+        run: |
+          az container delete \
+            --resource-group $AZURE_RESOURCE_GROUP \
+            --name $APP_NAME \
+            --yes || true
+          
+          az container create \
+            --resource-group $AZURE_RESOURCE_GROUP \
+            --name $APP_NAME \
+            --image ${{ steps.build-image.outputs.image-tag }} \
+            --registry-login-server ${ACR_NAME}.azurecr.io \
+            --registry-username ${{ secrets.ACR_USERNAME }} \
+            --registry-password ${{ secrets.ACR_PASSWORD }} \
+            --dns-name-label $APP_NAME \
+            --os-type Linux \
+            --ports 3001 \
+            --environment-variables NODE_ENV=production \
+            --cpu 1 \
+            --memory 1.5 \
+            --restart-policy Always \
+            --location "East US"
+
+      - name: Get Application URL
+        run: |
+          echo "Waiting for container to be ready..."
+          sleep 30
+          
+          FQDN=$(az container show \
+            --resource-group $AZURE_RESOURCE_GROUP \
+            --name $APP_NAME \
+            --query ipAddress.fqdn \
+            --output tsv)
+          
+          if [ "$FQDN" != "" ] && [ "$FQDN" != "null" ]; then
+            echo "🚀 Deployment successful!"
+            echo "App URL: http://$FQDN:3001"
+          else
+            echo "❌ Could not get container FQDN."
+          fi
+          
+          
+          
+            #         name: Deploy to Azure Container Instances
+          
+          # on:
+          #   push:
+          #     branches: [main]
+          #     paths:
+          #       - 'project-2/**'  # Only run when project-2 changes
+          #   pull_request:
+          #     branches: [main]
+          #     paths:
+          #       - 'project-2/**'
+          #   workflow_dispatch:  # Manual triggering
+          
+          # env:
+          #   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          #   ACR_NAME: ${{ secrets.ACR_NAME }}
+          
+          # jobs:
+          #   test:
+          #     name: Test Application
+          #     runs-on: ubuntu-latest
+          
+          #     defaults:
+          #       run:
+          #         working-directory: ./project-2  # Set working directory for all steps
+          
+          #     steps:
+          #     - name: Checkout code
+          #       uses: actions/checkout@v4
+          
+          #     - name: Setup Node.js
+          #       uses: actions/setup-node@v4
+          #       with:
+          #         node-version: '18'
+          #         cache: 'npm'
+          #         cache-dependency-path: './project-2/package-lock.json'  # Specify path for cache
+          
+          #     - name: Install dependencies
+          #       run: npm ci
+          
+          #     - name: Run tests
+          #       run: npm test
+          
+          #     - name: Test Docker build
+          #       run: |
+          #         docker build -t test-build .
+          #         echo "Docker build successful!"
+          
+          #   deploy:
+          #     name: Deploy to Azure
+          #     runs-on: ubuntu-latest
+          #     needs: test
+          #     if: github.ref == 'refs/heads/main'  # Only deploy from main branch
+          
+          #     defaults:
+          #       run:
+          #         working-directory: ./project-2
+          
+          #     steps:
+          #     - name: Checkout code
+          #       uses: actions/checkout@v4
+          
+          #     - name: Login to Azure
+          #       uses: azure/login@v1
+          #       with:
+          #         creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+          #     - name: Build and push Docker image
+          #       id: build-image
+          #       run: |
+          #         # Create a unique name for your app with timestamp
+          #         TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          #         APP_NAME="mywebapp-$TIMESTAMP"
+          #         echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+          #         echo "app-name=$APP_NAME" >> $GITHUB_OUTPUT
+          
+          #         # Login to Azure Container Registry
+          #         az acr login --name $ACR_NAME
+          
+          #         # Build Docker image
+          #         docker build -t $APP_NAME .
+          
+          #         # Tag and push image
+          #         IMAGE_TAG="${ACR_NAME}.azurecr.io/${APP_NAME}:latest"
+          #         docker tag $APP_NAME $IMAGE_TAG
+          #         docker push $IMAGE_TAG
+          
+          #         echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          
+          #     - name: Deploy to Azure Container Instances
+          #       run: |
+          #         # Clean up any existing container with same name
+          #         az container delete \
+          #           --resource-group $AZURE_RESOURCE_GROUP \
+          #           --name $APP_NAME \
+          #           --yes || true
+          
+          #         # Deploy new container
+          #         az container create \
+          #           --resource-group $AZURE_RESOURCE_GROUP \
+          #           --name $APP_NAME \
+          #           --image ${{ steps.build-image.outputs.image-tag }} \
+          #           --registry-login-server ${ACR_NAME}.azurecr.io \
+          #           --registry-username ${{ secrets.ACR_USERNAME }} \
+          #           --registry-password ${{ secrets.ACR_PASSWORD }} \
+          #           --dns-name-label $APP_NAME \
+          #           --os-type Linux \
+          #           --ports 3001 \
+          #           --environment-variables NODE_ENV=production \
+          #           --cpu 1 \
+          #           --memory 1.5 \
+          #           --restart-policy Always \
+          #           --location "East US"
+          
+          #     - name: Get Application URL
+          #       run: |
+          #         echo "Waiting for container to be ready..."
+          #         sleep 30
+          
+          #         FQDN=$(az container show \
+          #           --resource-group $AZURE_RESOURCE_GROUP \
+          #           --name $APP_NAME \
+          #           --query ipAddress.fqdn \
+          #           --output tsv)
+
+#         if [ "$FQDN" != "" ] && [ "$FQDN" != "null" ]; then
+#           echo ""
+#           echo "🚀 Deployment successful!"
+#           echo "📱 Your app is live at: http://$FQDN:3001"
+#           echo "🏥 Health check: http://$FQDN:3001/health"
+#           echo "📊 API endpoint: http://$FQDN:3001/api/info"
+#           echo ""
+#           echo "📋 Azure Console Links:"
+#           echo "Resource Group: https://portal.azure.com/#@/resource/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$AZURE_RESOURCE_GROUP"
+#           echo "Container Instance: https://portal.azure.com/#@/resource/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$AZURE_RESOURCE_GROUP/providers/Microsoft.ContainerInstance/containerGroups/$APP_NAME"
+#           echo ""
+#         else
+#           echo "❌ Could not get container FQDN. Check Azure portal for details."
+#         fi
