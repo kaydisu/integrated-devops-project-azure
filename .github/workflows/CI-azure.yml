@@ -16,18 +16,9 @@ jobs:
       # Change to "." if package.json is in repo root
       PROJECT_DIR: ./azure/project-2-cicd-pipeline
 
-
 env:
   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   ACR_NAME: ${{ secrets.ACR_NAME }}
-
-jobs:
-  test:
-    name: Test Application
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory:${{ env.PROJECT_DIR }}
 
     steps:
       - name: Checkout code
