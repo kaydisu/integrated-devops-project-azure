@@ -20,7 +20,7 @@ env:
   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   ACR_NAME: ${{ secrets.ACR_NAME }}
 
-    steps:
+steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
